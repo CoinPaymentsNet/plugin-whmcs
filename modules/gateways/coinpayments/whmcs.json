@@ -1,0 +1,21 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-gateways",
+  "name": "coinpayments",
+  "license": "proprietary",
+  "category": "payments",
+  "description": {
+    "name": "CoinPayments",
+    "tagline": "Implements CoinPayments payment services for merchants.",
+    "long": "Pay with Bitcoin, Litecoin, or other altcoins via [CoinPayments.net &raquo;](https://dashboard.coinpayments.net/)"
+  },
+  "logo": {
+    "filename": "cps_logo.png"
+  },
+  "authors": [
+    {
+      "name": "CoinPayments.NET",
+      "homepage": "https:\/\/coinpayments.net\/"
+    }
+  ]
+}

@@ -1,5 +1,10 @@
 # plugin-whmcs
 
-For more information, visit the respective branch for your target platform:
-- [CoinPayments v2](https://github.com/CoinPaymentsNet/plugin-whmcs/tree/coinpayments_new) (C#)
-- [CoinPayments Legacy](https://github.com/CoinPaymentsNet/plugin-whmcs/tree/coinpayments_legacy) (PHP)
+### Follow the steps below to download this plugin:
+  
+1. Log into your https://dashboard.coinpayments.net/ account
+2. Click on Business Tools -> Intergrations -> Pre-built Plugins -> + add Intergration button
+3. Select this plug-in from the dropdown menu
+4. Click the download plugin button  
+
+![Screenshot 2021-04-26 042724](https://user-images.githubusercontent.com/72504315/116075363-b7b65200-a647-11eb-977e-065c1c052869.png)
