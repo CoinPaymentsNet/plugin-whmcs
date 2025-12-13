@@ -2,7 +2,7 @@
 
 ### Follow the steps below to download this plugin:
   
-1. Log into your https://dashboard.coinpayments.net/ account
+1. Log into your www.coinpayments.net account
 2. Click on Business Tools -> Intergrations -> Pre-built Plugins -> + add Intergration button
 3. Select this plug-in from the dropdown menu
 4. Click the download plugin button  
