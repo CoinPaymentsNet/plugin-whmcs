@@ -1,0 +1,17 @@
+{
+    "name": "coinpayments/whmcs-gateway",
+    "description": "SDK-based CoinPayments payment gateway module for WHMCS.",
+    "type": "project",
+    "require": {
+        "php": ">=8.1",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "CoinPayments",
+            "homepage": "https://www.coinpayments.net/"
+        }
+    ]
+}
