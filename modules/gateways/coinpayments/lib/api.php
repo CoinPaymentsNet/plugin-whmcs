@@ -1,367 +1,524 @@
 <?php
+/**
+ * CoinPayments WHMCS Gateway Bootstrap
+ *
+ * Loads the CoinPayments SDK and shared module dependencies.
+ *
+ * @package    CoinPayments_WHMCS_Gateway
+ * @author     CoinPayments
+ * @copyright  Copyright (c) CoinPayments
+ * @license    See LICENSE file
+ * @version    1.0.0
+ * @link       https://www.coinpayments.net/
+ *
+ * For full license terms, see the LICENSE file included with this repository.
+ */
 
-if (!function_exists('curl_init')) {
-    throw new Exception('CoinPayments needs the CURL PHP extension.');
-}
-if (!function_exists('json_decode')) {
-    throw new Exception('CoinPayments needs the JSON PHP extension.');
-}
+use CoinPayments\CoinPaymentsClient;
+use CoinPayments\Runtime\WebhookVerifier;
 
-class CoinpaymentsApi
+const COINPAYMENTS_MODULE_NAME = 'coinpayments';
+const COINPAYMENTS_API_INSTANCE_URLS = array(
+    'A' => 'https://a-api.coinpayments.net',
+    'B' => 'https://b-api.coinpayments.net',
+    'C' => 'https://c-api.coinpayments.net',
+);
+const COINPAYMENTS_WEBHOOK_NOTIFICATIONS = array('invoicePaid', 'invoiceCancelled');
+const COINPAYMENTS_PAID_STATUSES = array('invoicepaid', 'invoicecompleted');
+
+coinpayments_register_sdk_autoloader();
+
+final class CoinPaymentsWhmcsGateway
 {
+    private array $params;
+    private CoinPaymentsClient $client;
 
-    const API_URL = 'https://api.coinpayments.net';
-    const CHECKOUT_URL = 'https://checkout.coinpayments.net';
-    const API_VERSION = '1';
-
-    const API_SIMPLE_INVOICE_ACTION = 'invoices';
-    const API_WEBHOOK_ACTION = 'merchant/clients/%s/webhooks';
-    const API_MERCHANT_INVOICE_ACTION = 'merchant/invoices';
-    const API_CURRENCIES_ACTION = 'currencies';
-    const API_CHECKOUT_ACTION = 'checkout';
-    const FIAT_TYPE = 'fiat';
-
-    const PAID_EVENT = 'Paid';
-    const CANCELLED_EVENT = 'Cancelled';
-
-    const WEBHOOK_NOTIFICATION_URL = 'modules/gateways/callback/coinpayments.php';
-
-    protected $client_id;
-    protected $client_secret;
-    protected $system_url;
-    protected $webhooks;
-    protected $version;
-    protected $companyname;
-
-    /**
-     * CoinpaymentsApi constructor.
-     * @param $params
-     */
-    public function __construct($params)
+    public function __construct(array $params)
     {
-        $this->system_url = $params['systemurl'];
-        $this->client_id = $params['coinpayments_client_id'];
-        $this->client_secret = $params['coinpayments_client_secret'];
-        $this->webhooks = $params['coinpayments_webhooks'];
-        $this->version = $params["whmcsVersion"];
-        $this->companyname = $params['companyname'];
-    }
+        $this->params = $params;
 
-    /**
-     * @return bool
-     * @throws Exception
-     */
-    public function checkWebhook($event)
-    {
-        $exists = false;
-        $webhooks_list = $this->getWebhooksList();
-        if (!empty($webhooks_list)) {
-            $webhooks_urls_list = array();
-            if (!empty($webhooks_list['items'])) {
-                $webhooks_urls_list = array_map(function ($webHook) {
-                    return $webHook['notificationsUrl'];
-                }, $webhooks_list['items']);
-            }
-            if (in_array($this->getNotificationUrl($event), $webhooks_urls_list)) {
-                $exists = true;
-            }
+        if (empty($params['coinpayments_client_id']) || empty($params['coinpayments_client_secret'])) {
+            throw new InvalidArgumentException('CoinPayments Client ID and Client Secret are required.');
         }
 
-        return $exists;
-    }
-
-    /**
-     * @return bool|mixed
-     * @throws Exception
-     */
-    public function getWebhooksList()
-    {
-
-        $action = sprintf(self::API_WEBHOOK_ACTION, $this->client_id);
-
-        return $this->sendRequest('GET', $action, $this->client_id, null, $this->client_secret);
-    }
-
-    /**
-     * @return bool|mixed
-     * @throws Exception
-     */
-    public function createWebHook($event)
-    {
-
-        $action = sprintf(self::API_WEBHOOK_ACTION, $this->client_id);
-
-        $params = array(
-            "notificationsUrl" => $this->getNotificationUrl($event),
-            "notifications" => [
-                sprintf("invoice%s", $event)
-            ],
+        $this->client = new CoinPaymentsClient(
+            $params['coinpayments_client_id'],
+            $params['coinpayments_client_secret'],
+            $this->getApiUrl()
         );
-
-        return $this->sendRequest('POST', $action, $this->client_id, $params, $this->client_secret);
     }
 
-    /**
-     * @param $invoice_params
-     * @return bool|mixed
-     * @throws Exception
-     */
-    public function createInvoice($invoice_params)
+    public function getApiUrl(): string
     {
+        $instance = strtoupper((string) ($this->params['coinpayments_instance'] ?? 'A'));
 
-        if ($this->webhooks == 'on') {
-            $action = self::API_MERCHANT_INVOICE_ACTION;
-            $secret = $this->client_secret;
-        } else {
-            $action = self::API_SIMPLE_INVOICE_ACTION;
-            $secret = false;
+        return COINPAYMENTS_API_INSTANCE_URLS[$instance] ?? COINPAYMENTS_API_INSTANCE_URLS['A'];
+    }
+
+    public function getInstance(): string
+    {
+        $instance = strtoupper((string) ($this->params['coinpayments_instance'] ?? 'A'));
+
+        return array_key_exists($instance, COINPAYMENTS_API_INSTANCE_URLS) ? $instance : 'A';
+    }
+
+    public function getWhmcsInvoiceUrl(): string
+    {
+        return sprintf('%s/viewinvoice.php?id=%s', $this->getSystemUrl(), rawurlencode((string) $this->params['invoiceid']));
+    }
+
+    public function getSystemUrl(): string
+    {
+        $systemUrl = trim((string) ($this->params['systemurl'] ?? ''));
+
+        if ($systemUrl !== '') {
+            return rtrim($systemUrl, '/');
         }
 
-        $params = array(
-            'clientId' => $this->client_id,
-            'invoiceId' => $invoice_params['invoice_id'],
-            'amount' => [
-                'currencyId' => $invoice_params['currency_id'],
-                "displayValue" => $invoice_params['display_value'],
-                'value' => $invoice_params['amount']
-            ],
-            'notesToRecipient' => $invoice_params['notes_link']
-        );
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-        $params = $this->append_billing_data($params, $invoice_params['billing_data']);
-        $params = $this->appendInvoiceMetadata($params);
-        return $this->sendRequest('POST', $action, $this->client_id, $params, $secret);
+        return $scheme . '://' . $host;
     }
 
-    /**
-     * @param $billing_data
-     * @return mixed
-     */
-    function append_billing_data($request_data, $billing_data)
+    public function getWebhookUrl(): string
     {
-        $request_data['buyer'] =  array(
-            "companyName" => $billing_data['companyname'],
-            "name" => array(
-                "firstName" => $billing_data['firstname'],
-                "lastName" => $billing_data['lastname']
+        return $this->getSystemUrl() . '/modules/gateways/callback/coinpayments.php';
+    }
+
+    public function getOrCreateInvoice(): array
+    {
+        $cacheKey = $this->getSessionCacheKey();
+        if (!empty($_SESSION['coinpayments']['invoices'][$cacheKey]) && is_array($_SESSION['coinpayments']['invoices'][$cacheKey])) {
+            return $_SESSION['coinpayments']['invoices'][$cacheKey];
+        }
+
+        $invoice = $this->createInvoice();
+        $_SESSION['coinpayments']['invoices'][$cacheKey] = $invoice;
+
+        return $invoice;
+    }
+
+    public function createInvoice(): array
+    {
+        $currency = $this->getFiatCurrency((string) $this->params['currency']);
+        $displayAmount = coinpayments_decimal_string($this->params['amount'] ?? '0');
+        $merchantInvoiceId = $this->getMerchantInvoiceId();
+        $invoiceUrl = $this->getWhmcsInvoiceUrl();
+        $description = sprintf('%s invoice #%s', $this->params['companyname'] ?? 'WHMCS', $this->params['invoiceid']);
+
+        $body = array(
+            'currency' => (string) $currency['id'],
+            'items' => array(
+                array(
+                    'customId' => (string) $this->params['invoiceid'],
+                    'name' => 'Invoice #' . $this->params['invoiceid'],
+                    'description' => $description,
+                    'quantity' => array(
+                        'value' => 1,
+                        'type' => 'quantity',
+                    ),
+                    'amount' => $displayAmount,
+                ),
             ),
-            "emailAddress" => $billing_data['email'],
-            "phoneNumber" => $billing_data['phonenumber'],
+            'amount' => array(
+                'breakdown' => array(
+                    'subtotal' => $displayAmount,
+                ),
+                'total' => $displayAmount,
+            ),
+            'isEmailDelivery' => false,
+            'invoiceId' => $merchantInvoiceId,
+            'description' => $description,
+            'notesToRecipient' => sprintf(
+                '%s/admin/orders.php?action=view&id=%s | Store name: %s | Order #%s',
+                $this->getSystemUrl(),
+                $this->params['invoiceid'],
+                $this->params['companyname'] ?? '',
+                $this->params['invoiceid']
+            ),
+            'metadata' => array(
+                'integration' => 'plugin:whmcs_' . ($this->params['whmcsVersion'] ?? 'unknown'),
+                'hostname' => $this->getSystemUrl(),
+            ),
+            'customData' => array(
+                'integration' => 'plugin:whmcs_' . ($this->params['whmcsVersion'] ?? 'unknown'),
+                'whmcsInvoiceId' => (string) $this->params['invoiceid'],
+                'merchantInvoiceId' => $merchantInvoiceId,
+                'hostHash' => md5($this->getSystemUrl()),
+            ),
+            'successUrl' => $invoiceUrl,
+            'cancelUrl' => $invoiceUrl,
         );
-        if (preg_match('/^([A-Z]{2})$/', $billing_data['country'])
-        && !empty($billing_data['address1'])
-            && !empty($billing_data['city'])
-        ) {
-            $request_data['buyer']['address'] = array(
-                'address1' => $billing_data['address1'],
-                'provinceOrState' => $billing_data['state'],
-                'city' => $billing_data['city'],
-                'countryCode' => $billing_data['country'],
-                'postalCode' => $billing_data['postcode'],
+
+        $buyer = coinpayments_build_buyer($this->params);
+        if (!empty($buyer)) {
+            $body['buyer'] = $buyer;
+        }
+
+        if (($this->params['coinpayments_webhooks'] ?? '') === 'on') {
+            $body['webhooks'] = array(
+                array(
+                    'notificationsUrl' => $this->getWebhookUrl(),
+                    'notifications' => COINPAYMENTS_WEBHOOK_NOTIFICATIONS,
+                ),
             );
         }
-        return $request_data;
+
+        $response = $this->client->invoices->postMerchantInvoicesV2($body);
+        $invoice = coinpayments_normalize_invoice_response($response);
+
+        if (empty($invoice['id'])) {
+            throw new RuntimeException('Unable to create CoinPayments invoice.');
+        }
+
+        $invoice['merchantInvoiceId'] = $merchantInvoiceId;
+        $invoice['whmcsInvoiceId'] = (string) $this->params['invoiceid'];
+        return $invoice;
     }
 
-    /**
-     * @param $name
-     * @return mixed
-     * @throws Exception
-     */
-    public function getCoinCurrency($name)
+    public function registerWebhook(): void
     {
+        $existing = $this->client->webhooks->getMerchantClientsWebhooksByIdV1($this->params['coinpayments_client_id']);
+        $webhooks = coinpayments_response_items($existing);
+        $webhookUrl = $this->getWebhookUrl();
 
-        $params = array(
-            'types' => self::FIAT_TYPE,
-            'q' => $name,
+        foreach ($webhooks as $webhook) {
+            if (($webhook['notificationsUrl'] ?? '') === $webhookUrl) {
+                return;
+            }
+        }
+
+        $this->client->webhooks->postMerchantClientsWebhooksByIdV1(
+            $this->params['coinpayments_client_id'],
+            array(
+                'notificationsUrl' => $webhookUrl,
+                'notifications' => COINPAYMENTS_WEBHOOK_NOTIFICATIONS,
+            )
         );
-        $items = array();
-
-        $listData = $this->getCoinCurrencies($params);
-        if (!empty($listData['items'])) {
-            $items = $listData['items'];
-        }
-
-        return array_shift($items);
     }
 
-    /**
-     * @param array $params
-     * @return bool|mixed
-     * @throws Exception
-     */
-    public function getCoinCurrencies($params = array())
+    public function testConnection(): array
     {
-        return $this->sendRequest('GET', self::API_CURRENCIES_ACTION, false, $params);
-    }
+        $response = $this->client->wallets->getMerchantWalletsV2(0, 1);
+        $wallets = coinpayments_response_items($response);
 
-    /**
-     * @param $signature
-     * @param $content
-     * @return bool
-     */
-    public function checkDataSignature($signature, $content, $event)
-    {
-
-        $request_url = $this->getNotificationUrl($event);
-        $signature_string = sprintf('%s%s', $request_url, $content);
-        $encoded_pure = $this->encodeSignatureString($signature_string, $this->client_secret);
-        return $signature == $encoded_pure;
-    }
-
-    /**
-     * @param $signature_string
-     * @param $client_secret
-     * @return string
-     */
-    public function encodeSignatureString($signature_string, $client_secret)
-    {
-        return base64_encode(hash_hmac('sha256', $signature_string, $client_secret, true));
-    }
-
-    /**
-     * @param $action
-     * @return string
-     */
-    public function getApiUrl($action)
-    {
-        return sprintf('%s/api/v%s/%s', self::API_URL, self::API_VERSION, $action);
-    }
-
-    /**
-     * @return string
-     */
-    public function getSystemUrl()
-    {
-        if (!empty($this->system_url)) {
-            $request_url_data = parse_url($this->system_url);
-            $system_url = sprintf('%s://%s', $request_url_data['scheme'], $request_url_data['host']);
-            if (!empty($request_url_data['port']) && $request_url_data['port'] != '80') {
-                $system_url = sprintf('%s:%s', $system_url, $request_url_data['port']);
-            }
-        } else {
-            $system_url = sprintf('%s://%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST']);
-
-            if (!empty($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] != '80') {
-                $system_url = sprintf('%s:%s', $system_url, $_SERVER['SERVER_PORT']);
-            }
-        }
-        return $system_url;
-    }
-
-    /**
-     * @return string
-     */
-    protected function getNotificationUrl($event)
-    {
-        return sprintf('%s/%s?clientId=%s&event=%s', $this->getSystemUrl(), self::WEBHOOK_NOTIFICATION_URL, $this->client_id, $event);
-    }
-
-    /**
-     * @param $method
-     * @param $api_action
-     * @param $client_id
-     * @param null $params
-     * @param null $client_secret
-     * @return bool|mixed
-     * @throws Exception
-     */
-    protected function sendRequest($method, $api_action, $client_id, $params = null, $client_secret = null)
-    {
-
-        $response = false;
-
-        $api_url = $this->getApiUrl($api_action);
-        $date = new \Datetime();
-        try {
-
-            $curl = curl_init();
-
-            $options = array(
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_SSL_VERIFYHOST => false,
-                CURLOPT_SSL_VERIFYPEER => false,
-            );
-
-            $headers = array(
-                'Content-Type: application/json',
-            );
-
-            if ($client_secret) {
-                $signature = $this->createSignature($method, $api_url, $client_id, $date, $client_secret, $params);
-                $headers[] = 'X-CoinPayments-Client: ' . $client_id;
-                $headers[] = 'X-CoinPayments-Timestamp: ' . $date->format('c');
-                $headers[] = 'X-CoinPayments-Signature: ' . $signature;
-
-            }
-
-            $options[CURLOPT_HTTPHEADER] = $headers;
-
-            if ($method == 'POST') {
-                $options[CURLOPT_POST] = true;
-                $options[CURLOPT_POSTFIELDS] = json_encode($params);
-            } elseif ($method == 'GET' && !empty($params)) {
-                $api_url .= '?' . http_build_query($params);
-            }
-
-            $options[CURLOPT_URL] = $api_url;
-
-            curl_setopt_array($curl, $options);
-
-            $response = json_decode(curl_exec($curl), true);
-
-            curl_close($curl);
-
-        } catch (Exception $e) {
-
-        }
-        return $response;
-    }
-
-    /**
-     * @param $request_data
-     * @return mixed
-     */
-    protected function appendInvoiceMetadata($request_data)
-    {
-        $request_data['metadata'] = array(
-            "integration" => sprintf('WHMCS_%s', $this->version),
-            "hostname" => $this->system_url,
+        return array(
+            'instance' => $this->getInstance(),
+            'apiUrl' => $this->getApiUrl(),
+            'walletsReturned' => count($wallets),
         );
-
-        return $request_data;
     }
 
-    /**
-     * @param $method
-     * @param $api_url
-     * @param $client_id
-     * @param $date
-     * @param $client_secret
-     * @param $params
-     * @return string
-     */
-    protected function createSignature($method, $api_url, $client_id, $date, $client_secret, $params)
+    private function getMerchantInvoiceId(): string
     {
+        return 'WHMCS_' . $this->params['invoiceid'];
+    }
 
-        if (!empty($params)) {
-            $params = json_encode($params);
+    private function getSessionCacheKey(): string
+    {
+        return sha1(implode('|', array(
+            $this->getSystemUrl(),
+            $this->params['invoiceid'],
+            $this->params['amount'],
+            $this->params['currency'],
+            $this->getApiUrl(),
+        )));
+    }
+
+    private function getFiatCurrency(string $currencyCode): array
+    {
+        $response = $this->client->currencies->getCurrenciesV2($currencyCode, 'fiat');
+        $items = coinpayments_response_items($response);
+        $currencyCode = strtoupper($currencyCode);
+
+        foreach ($items as $currency) {
+            $candidates = array_filter(array(
+                $currency['id'] ?? null,
+                $currency['symbol'] ?? null,
+                $currency['code'] ?? null,
+                $currency['ticker'] ?? null,
+            ));
+
+            foreach ($candidates as $candidate) {
+                if (strtoupper((string) $candidate) === $currencyCode) {
+                    return $currency;
+                }
+            }
         }
 
-        $signature_data = array(
-            chr(239),
-            chr(187),
-            chr(191),
-            $method,
-            $api_url,
-            $client_id,
-            $date->format('c'),
-            $params
-        );
+        if (!empty($items[0])) {
+            return $items[0];
+        }
 
-        $signature_string = implode('', $signature_data);
+        throw new RuntimeException('Unsupported WHMCS currency for CoinPayments: ' . $currencyCode);
+    }
+}
 
-        return $this->encodeSignatureString($signature_string, $client_secret);
+function coinpayments_try_register_webhook(array $params): void
+{
+    try {
+        (new CoinPaymentsWhmcsGateway($params))->registerWebhook();
+    } catch (Throwable $exception) {
+        coinpayments_log('Webhook registration failed', array('error' => $exception->getMessage()));
+    }
+}
+
+function coinpayments_verify_webhook(array $params, string $rawBody, array $headers)
+{
+    $gateway = new CoinPaymentsWhmcsGateway($params);
+    $maxAge = (int) ($params['coinpayments_webhook_max_age'] ?? 300);
+
+    return WebhookVerifier::verify(
+        'POST',
+        $gateway->getWebhookUrl(),
+        $rawBody,
+        $headers,
+        $params['coinpayments_client_secret'],
+        $params['coinpayments_client_id'],
+        $maxAge
+    );
+}
+
+function coinpayments_register_sdk_autoloader(): void
+{
+    $composerAutoload = __DIR__ . '/../../../../vendor/autoload.php';
+    if (is_file($composerAutoload)) {
+        require_once $composerAutoload;
+        if (class_exists('CoinPayments\\CoinPaymentsClient')) {
+            return;
+        }
     }
 
+    spl_autoload_register(function ($class): void {
+        $prefix = 'CoinPayments\\';
+        if (strncmp($class, $prefix, strlen($prefix)) !== 0) {
+            return;
+        }
+
+        $relative = substr($class, strlen($prefix));
+        $file = __DIR__ . '/../../../../vendor/coinpayments/src/' . str_replace('\\', '/', $relative) . '.php';
+
+        if (is_file($file)) {
+            require_once $file;
+        }
+    });
+}
+
+function coinpayments_build_buyer(array $params): array
+{
+    $client = $params['clientdetails'] ?? array();
+    if (empty($client) && isset($params['cart']->client)) {
+        $client = $params['cart']->client->getAttributes();
+    }
+
+    if (empty($client)) {
+        return array();
+    }
+
+    $buyer = array(
+        'companyName' => (string) ($client['companyname'] ?? ''),
+        'name' => array(
+            'firstName' => (string) ($client['firstname'] ?? ''),
+            'lastName' => (string) ($client['lastname'] ?? ''),
+        ),
+        'emailAddress' => (string) ($client['email'] ?? ''),
+        'phoneNumber' => (string) ($client['phonenumber'] ?? ''),
+    );
+
+    $country = strtoupper((string) ($client['country'] ?? ''));
+
+    if (
+        $country !== ''
+        && preg_match('/^[A-Z]{2}$/', $country)
+        && !empty($client['address1'])
+        && !empty($client['city'])
+    ) {
+        $buyer['address'] = array(
+            'address1' => (string) $client['address1'],
+            'provinceOrState' => (string) ($client['state'] ?? ''),
+            'city' => (string) $client['city'],
+            'countryCode' => $country,
+            'postalCode' => (string) ($client['postcode'] ?? ''),
+        );
+    }
+
+    $buyer['name'] = array_filter($buyer['name'], static fn($value) => $value !== '');
+    if (empty($buyer['name'])) {
+        unset($buyer['name']);
+    }
+
+    return array_filter($buyer, static fn($value) => $value !== '' && $value !== array());
+}
+
+function coinpayments_normalize_invoice_response($response): array
+{
+    if (!is_array($response)) {
+        return array();
+    }
+
+    if (!empty($response['invoices'][0]) && is_array($response['invoices'][0])) {
+        return $response['invoices'][0];
+    }
+
+    if (!empty($response['invoice']) && is_array($response['invoice'])) {
+        return $response['invoice'];
+    }
+
+    if (!empty($response['data']['invoice']) && is_array($response['data']['invoice'])) {
+        return $response['data']['invoice'];
+    }
+
+    return $response;
+}
+
+function coinpayments_response_items($response): array
+{
+    if (!is_array($response)) {
+        return array();
+    }
+
+    foreach (array('items', 'data', 'webhooks', 'currencies') as $key) {
+        if (!empty($response[$key]) && is_array($response[$key])) {
+            return array_values($response[$key]);
+        }
+    }
+
+    return array_values($response);
+}
+
+function coinpayments_decimal_string($amount): string
+{
+    $amount = trim((string) $amount);
+    if ($amount === '') {
+        return '0';
+    }
+
+    $amount = str_replace(',', '', $amount);
+    if (!preg_match('/^-?\d+(\.\d+)?$/', $amount)) {
+        throw new InvalidArgumentException('Invalid decimal amount: ' . $amount);
+    }
+
+    return $amount;
+}
+
+function coinpayments_escape($value): string
+{
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function coinpayments_log(string $message, array $context = array()): void
+{
+    if (function_exists('logTransaction')) {
+        logTransaction(COINPAYMENTS_MODULE_NAME, array('message' => $message, 'context' => $context), 'Error');
+        return;
+    }
+
+    error_log($message . ' ' . json_encode($context));
+}
+
+function coinpayments_getallheaders(): array
+{
+    if (function_exists('getallheaders')) {
+        return getallheaders();
+    }
+
+    $headers = array();
+    foreach ($_SERVER as $key => $value) {
+        if (strncmp($key, 'HTTP_', 5) === 0) {
+            $name = str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($key, 5)))));
+            $headers[$name] = $value;
+        }
+    }
+
+    return $headers;
+}
+
+function coinpayments_array_get(array $array, array $path)
+{
+    $value = $array;
+    foreach ($path as $segment) {
+        if (!is_array($value) || !array_key_exists($segment, $value)) {
+            return null;
+        }
+        $value = $value[$segment];
+    }
+
+    return $value;
+}
+
+function coinpayments_extract_callback_invoice(array $payload): array
+{
+    foreach (array(array('invoice'), array('data', 'invoice'), array('payload', 'invoice')) as $path) {
+        $invoice = coinpayments_array_get($payload, $path);
+        if (is_array($invoice)) {
+            return $invoice;
+        }
+    }
+
+    return $payload;
+}
+
+function coinpayments_get_whmcs_invoice_balance($invoiceId): float
+{
+    if (!function_exists('localAPI')) {
+        throw new RuntimeException('WHMCS localAPI is unavailable.');
+    }
+
+    $response = localAPI('GetInvoice', array('invoiceid' => (int) $invoiceId));
+    if (($response['result'] ?? '') !== 'success') {
+        throw new RuntimeException('Unable to retrieve WHMCS invoice balance: ' . ($response['message'] ?? 'unknown error'));
+    }
+
+    $balance = coinpayments_parse_decimal_amount($response['balance'] ?? null);
+    if ($balance === null) {
+        throw new RuntimeException('WHMCS invoice balance is missing or invalid.');
+    }
+
+    return max(0.0, $balance);
+}
+
+function coinpayments_extract_merchant_fee(array $invoicePayload): float
+{
+    $payments = $invoicePayload['payments'] ?? array();
+    if (!is_array($payments)) {
+        return 0.0;
+    }
+
+    $feeInNativeCents = 0;
+    foreach ($payments as $payment) {
+        if (!is_array($payment)) {
+            continue;
+        }
+
+        $fees = $payment['hotWallet']['merchantFeeInNativeCurrency'] ?? array();
+        if (!is_array($fees)) {
+            continue;
+        }
+
+        foreach (array('coinPaymentsFee', 'networkFee', 'conversionFee') as $feeKey) {
+            $feeInNativeCents += (int) ($fees[$feeKey] ?? 0);
+        }
+    }
+
+    return round($feeInNativeCents / 100, 2);
+}
+
+function coinpayments_parse_decimal_amount($value): ?float
+{
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    $value = str_replace(',', '', trim((string) $value));
+    if (!is_numeric($value)) {
+        return null;
+    }
+
+    return (float) $value;
+}
+
+function coinpayments_is_paid_status(?string $status): bool
+{
+    return in_array(strtolower(trim((string) $status)), COINPAYMENTS_PAID_STATUSES, true);
 }

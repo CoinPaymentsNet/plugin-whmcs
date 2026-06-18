@@ -1,21 +1,28 @@
 {
-  "schema": "1.0",
-  "type": "whmcs-gateways",
-  "name": "coinpayments",
-  "license": "proprietary",
-  "category": "payments",
-  "description": {
-    "name": "CoinPayments",
-    "tagline": "Implements CoinPayments payment services for merchants.",
-    "long": "Pay with Bitcoin, Litecoin, or other altcoins via [CoinPayments.net &raquo;](https://dashboard.coinpayments.net/)"
-  },
-  "logo": {
-    "filename": "cps_logo.png"
-  },
-  "authors": [
-    {
-      "name": "CoinPayments.NET",
-      "homepage": "https:\/\/coinpayments.net\/"
-    }
-  ]
+    "schema": "1.0.0",
+    "type": "whmcs-gateways",
+    "name": "coinpayments",
+    "license": "MIT",
+    "category": "payments",
+    "description": {
+        "name": "CoinPayments",
+        "tagline": "Accept cryptocurrency payments through CoinPayments.",
+        "long": "Accept crypto payments in WHMCS using the CoinPayments PHP SDK."
+    },
+    "logo": {
+        "filename": "logo.png"
+    },
+    "support": {
+        "homepage": "https://www.coinpayments.net/",
+        "learn_more": "https://www.coinpayments.net/",
+        "email": "support@coinpayments.net",
+        "support_url": "https://www.coinpayments.net/support",
+        "docs_url": "https://docs.coinpayments.net"
+    },
+    "authors": [
+        {
+            "name": "CoinPayments",
+            "homepage": "https://www.coinpayments.net/"
+        }
+    ]
 }
