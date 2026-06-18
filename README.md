@@ -2,7 +2,9 @@
 
 SDK-based CoinPayments gateway module for WHMCS.
 
-Read more about configuring your CoinPayments account. ([Integration Options](https://docs.coinpayments.net/knowledge/integration-options/))
+[Documentation](https://docs.coinpayments.net/knowledge/plugins/whmcs)
+
+Read more about optimizing your CoinPayments configuration. ([Integration Options](https://docs.coinpayments.net/knowledge/integration-options/))
 
 ## Before You Install
 
