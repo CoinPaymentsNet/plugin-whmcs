@@ -24,7 +24,8 @@ const COINPAYMENTS_API_INSTANCE_URLS = array(
     'C' => 'https://c-api.coinpayments.net',
 );
 const COINPAYMENTS_WEBHOOK_NOTIFICATIONS = array('invoicePaid', 'invoiceCancelled');
-const COINPAYMENTS_PAID_STATUSES = array('invoicepaid', 'invoicecompleted');
+const COINPAYMENTS_PAID_STATUSES = array('invoicepaid');
+const COINPAYMENTS_CANCELLED_STATUSES = array('invoicecancelled');
 
 coinpayments_register_sdk_autoloader();
 
@@ -177,27 +178,6 @@ final class CoinPaymentsWhmcsGateway
         return $invoice;
     }
 
-    public function registerWebhook(): void
-    {
-        $existing = $this->client->webhooks->getMerchantClientsWebhooksByIdV1($this->params['coinpayments_client_id']);
-        $webhooks = coinpayments_response_items($existing);
-        $webhookUrl = $this->getWebhookUrl();
-
-        foreach ($webhooks as $webhook) {
-            if (($webhook['notificationsUrl'] ?? '') === $webhookUrl) {
-                return;
-            }
-        }
-
-        $this->client->webhooks->postMerchantClientsWebhooksByIdV1(
-            $this->params['coinpayments_client_id'],
-            array(
-                'notificationsUrl' => $webhookUrl,
-                'notifications' => COINPAYMENTS_WEBHOOK_NOTIFICATIONS,
-            )
-        );
-    }
-
     public function testConnection(): array
     {
         $response = $this->client->wallets->getMerchantWalletsV2(0, 1);
@@ -252,15 +232,6 @@ final class CoinPaymentsWhmcsGateway
         }
 
         throw new RuntimeException('Unsupported WHMCS currency for CoinPayments: ' . $currencyCode);
-    }
-}
-
-function coinpayments_try_register_webhook(array $params): void
-{
-    try {
-        (new CoinPaymentsWhmcsGateway($params))->registerWebhook();
-    } catch (Throwable $exception) {
-        coinpayments_log('Webhook registration failed', array('error' => $exception->getMessage()));
     }
 }
 
@@ -521,4 +492,9 @@ function coinpayments_parse_decimal_amount($value): ?float
 function coinpayments_is_paid_status(?string $status): bool
 {
     return in_array(strtolower(trim((string) $status)), COINPAYMENTS_PAID_STATUSES, true);
+}
+
+function coinpayments_is_cancelled_status(?string $status): bool
+{
+    return in_array(strtolower(trim((string) $status)), COINPAYMENTS_CANCELLED_STATUSES, true);
 }

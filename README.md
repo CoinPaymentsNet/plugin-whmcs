@@ -89,15 +89,32 @@ After upload, these files should exist:
 
 ## 6. Configure WHMCS
 
-In WHMCS Admin:
+In WHMCS Admin, activate and configure the CoinPayments integration using either of the following paths.
 
-1. Open **System Settings > Payment Gateways**.
-2. Activate **CoinPayments**.
-3. Enter your **Client ID**.
-4. Enter your **Client Secret**.
-5. Choose your CoinPayments **Instance**: `A`, `B`, or `C`.
-6. Click **Save Changes**.
-7. Click **Test Connection**.
+### Option 1: Configure from Apps & Integrations
+
+1. Open **Apps & Integrations** (Marketplace).
+2. Search for **CoinPayments**.
+3. Click **Activate** on the CoinPayments integration.
+4. After activation, click **Manage** from the same screen.
+5. Enter your **Client ID**.
+6. Enter your **Client Secret**.
+7. Choose your CoinPayments **Instance**: `A`, `B`, or `C`.
+8. Click **Save Changes**.
+9. Click **Test Connection**.
+
+### Option 2: Configure from Payment Gateways
+
+1. Open **Apps & Integrations** (Marketplace).
+2. Search for **CoinPayments**.
+3. Click **Activate** on the CoinPayments integration.
+4. Go to **System Settings > Payment Gateways**.
+5. Under active gateways, open **CoinPayments**.
+6. Enter your **Client ID**.
+7. Enter your **Client Secret**.
+8. Choose your CoinPayments **Instance**: `A`, `B`, or `C`.
+9. Click **Save Changes**.
+10. Click **Test Connection**.
 
 The **Test Connection** button calls `getMerchantWalletsV2(0, 1)` using the saved instance and credentials. A successful result confirms that API credentials and entity routing are valid.
 

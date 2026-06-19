@@ -51,11 +51,6 @@ function coinpayments_config($params = array())
             'Type' => 'yesno',
             'Description' => 'Recommended. Lets CoinPayments mark WHMCS invoices paid automatically.',
         ),
-        'coinpayments_auto_register_webhook' => array(
-            'FriendlyName' => 'Auto-register Webhook',
-            'Type' => 'yesno',
-            'Description' => 'Creates the CoinPayments webhook after the Client ID and Client Secret are saved.',
-        ),
         'coinpayments_webhook_max_age' => array(
             'FriendlyName' => 'Webhook Max Age',
             'Type' => 'text',
@@ -64,16 +59,6 @@ function coinpayments_config($params = array())
             'Description' => 'Seconds of allowed signature timestamp drift. Use 0 only for local testing.',
         ),
     );
-
-    if (
-        isset($params['coinpayments_webhooks'], $params['coinpayments_auto_register_webhook'])
-        && $params['coinpayments_webhooks'] === 'on'
-        && $params['coinpayments_auto_register_webhook'] === 'on'
-        && !empty($params['coinpayments_client_id'])
-        && !empty($params['coinpayments_client_secret'])
-    ) {
-        coinpayments_try_register_webhook($params);
-    }
 
     return $config;
 }

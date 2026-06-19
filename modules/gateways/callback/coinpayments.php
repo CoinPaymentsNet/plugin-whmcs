@@ -87,12 +87,14 @@ try {
     $transactionId = $coinpaymentsInvoiceId;
 
     $checkedInvoiceId = checkCbInvoiceID($whmcsInvoiceId, $params['name']);
-    checkCbTransID($transactionId);
 
-    if (coinpayments_is_paid_status($status)) {
-        // CoinPayments payment amounts can be native-unit integers or invoice
-        // totals depending on payload shape, so trust only the paid event and
-        // let WHMCS decide the amount required to close its own invoice.
+    if (coinpayments_is_cancelled_status($status)) {
+        coinpayments_cancel_whmcs_invoice($checkedInvoiceId);
+        logTransaction($gatewayModule, $payload, 'Cancelled');
+    } elseif (coinpayments_is_paid_status($status)) {
+        checkCbTransID($transactionId);
+
+        // Trusting the WHMCS invoice amount, but applying our transaction fee to the invoice.
         $amount = coinpayments_get_whmcs_invoice_balance($checkedInvoiceId);
         $fee = coinpayments_extract_merchant_fee($invoicePayload);
         if ($amount <= 0) {
@@ -113,4 +115,21 @@ try {
     logTransaction($gatewayModule, array('error' => $exception->getMessage(), 'body' => $rawBody), 'Webhook Error');
     http_response_code(400);
     exit('Webhook error');
+}
+
+function coinpayments_cancel_whmcs_invoice($invoiceId): void
+{
+    if (!function_exists('localAPI')) {
+        throw new RuntimeException('WHMCS localAPI is unavailable.');
+    }
+
+    // WHMCS does not expose a separate CancelInvoice API action, changing the invoice status through UpdateInvoice is the built-in API path.
+    $response = localAPI('UpdateInvoice', array(
+        'invoiceid' => (int) $invoiceId,
+        'status' => 'Cancelled',
+    ));
+
+    if (($response['result'] ?? '') !== 'success') {
+        throw new RuntimeException('Unable to cancel WHMCS invoice: ' . ($response['message'] ?? 'unknown error'));
+    }
 }
