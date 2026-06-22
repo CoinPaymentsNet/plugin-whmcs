@@ -188,8 +188,8 @@ If payment reconciliation fails:
 
 CoinPayments tested this WHMCS gateway module using the following environment:
 
-* WHMCS v9.0.5
-* PHP 8.2
+* WHMCS: 9.0.5-release.1
+* PHP: 8.2.31 (with IonCube Loader 15.5.0)
 * Debian 13
 
 Merchants should validate the module in their own environment before accepting live payments.
